@@ -21,10 +21,10 @@ const user1Wallet = new Wallet(web3.Keypair.fromSecretKey(Base58.decode('4EHnNBG
 // 6qbhYEGCMihaQiRt66oTMDgvCm2VY23vJsETGN6rs8z1
 const user2Wallet = new Wallet(web3.Keypair.fromSecretKey(Base58.decode('4TQEhMh7ujM8yoEKxEv6d5dWciCPhErAMP2FuLS2xTX9B3VrwZUDJVubVVby46yQGkcmWD2vvcv7pyrQDJxu96yb')))
 
-const bicTokenAddress = '9kJAfNMhZNtaTQTMGvrnRnCg1qxeCunFdvwY5webv8TN'
-const birTokenAddress = '2EVyXs7AM8tgkjweRFkwCDe8DaVEYetDPG2EauAu2U6B'
-const bgtTokenAddress = '3CvHRa7W8KcQG37xEqvUoUwNonxVBMkPRNttHn9MVczg'
-const usdtTokenAddress = 'v2aShdenyX3bNDvUWzRYBXPC5yeuhtBjTTg3AiF5TAE'
+const bicTokenPublicKey = new web3.PublicKey('9kJAfNMhZNtaTQTMGvrnRnCg1qxeCunFdvwY5webv8TN')
+const birTokenPublicKey = new web3.PublicKey('2EVyXs7AM8tgkjweRFkwCDe8DaVEYetDPG2EauAu2U6B')
+const bgtTokenPublicKey = new web3.PublicKey('3CvHRa7W8KcQG37xEqvUoUwNonxVBMkPRNttHn9MVczg')
+const usdtTokenPublicKey = new web3.PublicKey('v2aShdenyX3bNDvUWzRYBXPC5yeuhtBjTTg3AiF5TAE')
 
 const currentPrice = 0;
 const coreTeamRole = 'CORE_TEAM_ROLE';
@@ -33,7 +33,7 @@ const whitelist = {
     '2B8SUxUHwUMCaGBR564L5KLDGJ7SyjbZDzXZifbvrhdv': coreTeamRole,
     '6qbhYEGCMihaQiRt66oTMDgvCm2VY23vJsETGN6rs8z1': communityRole,
 }
-const priceForRentInUsdt = 0;
+const priceForRentAccountInUsdt = 0;
 
 const provider = new Provider(connection, testFeePayerWallet, {skipPreflight: false});
 const DECIMALS = 6;
@@ -99,8 +99,64 @@ function logOnExplorer(hash) {
     console.log('https://explorer.solana.com/tx/'+ hash + '?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899');
 }
 
-createTokensAndMintIt()
+async function transferUsdtToUser(amountUsdt) {
+    amountUsdt = amountUsdt*Math.pow(10, DECIMALS)
+    const userPublicKey = user1Wallet.publicKey;
 
-async function createBuyRequest() {
+    const userAssociatedAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
+        usdtTokenPublicKey,
+        userPublicKey
+    )
+
+    const tokenMasterAssociatedAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
+        usdtTokenPublicKey,
+        testMasterWallet.publicKey
+    )
+
+    // console.log('master: ', (await connection.getTokenAccountBalance(tokenMasterAssociatedAccount)))
+
+    const instructions = [
+        Token.createTransferInstruction(
+            TOKEN_PROGRAM_ID,
+            tokenMasterAssociatedAccount,
+            userAssociatedAccount,
+            testMasterWallet.publicKey,
+            [],
+            amountUsdt
+        ),
+    ]
+    let isCreateAssociatedTokenAccount = false;
+    try {
+        await connection.getTokenAccountBalance(userAssociatedAccount)
+    } catch (e) {
+        instructions.unshift(Token.createAssociatedTokenAccountInstruction(
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+            TOKEN_PROGRAM_ID,
+            usdtTokenPublicKey,
+            userAssociatedAccount,
+            userPublicKey,
+            testFeePayerWallet.publicKey
+        ))
+        isCreateAssociatedTokenAccount = true;
+    }
+
+    let tx = new web3.Transaction().add(...instructions)
+    tx.feePayer = testFeePayerWallet.payer.publicKey
+    tx.recentBlockhash = (await connection.getRecentBlockhash()).blockhash
+    tx.partialSign(testFeePayerWallet.payer)
+    tx.partialSign(testMasterWallet.payer)
+    const rawTx = tx.serialize()
+    const receipt = await connection.sendRawTransaction(rawTx)
+    logOnExplorer(receipt);
+}
+
+transferUsdtToUser(1);
+
+async function createBuyRequest(amountUsdt) {
+    const amountDecimal = amountUsdt*Math.pow(10, DECIMALS);
 
 }
