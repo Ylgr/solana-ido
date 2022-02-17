@@ -68,7 +68,7 @@ program.command('buy')
     .action(async () => {
         const amountUsdt = 1;
         console.log(`${user1Wallet.publicKey.toString()} buy BIC by using ${amountUsdt} USDT.`)
-        await transferUsdtToUser(amountUsdt);
+        await createBuyRequest(amountUsdt);
     });
 
 program.parse();
