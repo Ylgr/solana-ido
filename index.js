@@ -71,6 +71,19 @@ program.command('buy')
         await createBuyRequest(amountUsdt);
     });
 
+program.command('balance')
+    .description('Log balance of all user')
+    .action(async () => {
+        console.log('Master wallet.')
+        await logBalance(testMasterWallet);
+        console.log('Fee payer wallet.')
+        await logBalance(testFeePayerWallet);
+        console.log('User 1 (Buy user).')
+        await logBalance(user1Wallet);
+        console.log('User 2 (Ref user).')
+        await logBalance(user2Wallet);
+    });
+
 program.parse();
 
 async function createTokensAndMintIt() {
@@ -412,3 +425,35 @@ async function createBuyRequest(amountUsdt) {
     const receipt = await connection.sendRawTransaction(rawTx)
     logOnExplorer(receipt);
 }
+
+async function logBalance(wallet) {
+    console.log('Balance of wallet: ', wallet.publicKey.toString());
+
+    const solBalance = await connection.getBalance(wallet.publicKey);
+    console.log('SOL: ', solBalance/1e9)
+    const associatedAccount = await getListAssociatedAccount(wallet.publicKey);
+
+    let bicBalance = 0
+    try {
+        bicBalance = (await connection.getTokenAccountBalance(associatedAccount.bic)).value.uiAmount
+        console.log('BIC: ', bicBalance);
+    } catch (e) {
+        console.log('BIC account not created.');
+    }
+    let birBalance = 0
+    try {
+        birBalance = (await connection.getTokenAccountBalance(associatedAccount.bir)).value.uiAmount
+        console.log('BIC: ', birBalance);
+    } catch (e) {
+        console.log('BIR account not created.');
+    }
+    let bgtBalance = 0
+    try {
+        bgtBalance = (await connection.getTokenAccountBalance(associatedAccount.bgt)).value.uiAmount
+        console.log('BGT: ', bgtBalance);
+    } catch (e) {
+        console.log('BGT account not created.');
+    }
+    console.log('-------------------------------------------------------------')
+}
+
