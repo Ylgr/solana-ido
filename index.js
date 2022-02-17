@@ -1,3 +1,4 @@
+const { program } = require('commander');
 const anchor = require('@project-serum/anchor');
 const { web3, Provider, Wallet, utils } = anchor;
 const { Account, Transaction, SystemProgram, PublicKey } = web3;
@@ -39,7 +40,38 @@ const ref = {
 }
 const amountUsdtForRentAccount = 0.2 * Math.pow(10, DECIMALS);
 
-const provider = new Provider(connection, testFeePayerWallet, {skipPreflight: false});
+program.command('init-token')
+    .description('Create BIC, BIR, BGT and USDT and mint 1000 for each')
+    .action(async () => {
+        console.log('Create tokens for master wallet: ', testMasterWallet.publicKey.toString())
+        console.log('And mining 1000 token each for master wallet.')
+        console.log('BIC creating....')
+        await createTokensAndMintIt();
+        console.log('BIR creating....')
+        await createTokensAndMintIt();
+        console.log('BGT creating....')
+        await createTokensAndMintIt();
+        console.log('USDT creating....')
+        await createTokensAndMintIt();
+    });
+
+program.command('transfer-usdt')
+    .description('Transfer usdt to user')
+    .action(async () => {
+        const amountUsdt = 1;
+        console.log(`Tranfer ${amountUsdt} from ${testMasterWallet.publicKey.toString()} to ${user1Wallet.publicKey.toString()}.`)
+        await transferUsdtToUser(amountUsdt);
+    });
+
+program.command('buy')
+    .description('User buy BIC')
+    .action(async () => {
+        const amountUsdt = 1;
+        console.log(`${user1Wallet.publicKey.toString()} buy BIC by using ${amountUsdt} USDT.`)
+        await transferUsdtToUser(amountUsdt);
+    });
+
+program.parse();
 
 async function createTokensAndMintIt() {
     const amountMint = 10000*1e6;
@@ -99,7 +131,10 @@ async function createTokensAndMintIt() {
 }
 
 function logOnExplorer(hash) {
-    console.log('https://explorer.solana.com/tx/'+ hash + '?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899');
+    console.log(
+        'https://explorer.solana.com/tx/'+ hash +
+        (process.env.NETWORK === 'LOCAL' ? '?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899' : '?cluster=devnet')
+    );
 }
 
 async function transferUsdtToUser(amountUsdt) {
