@@ -24,7 +24,7 @@ const user2Wallet = new Wallet(web3.Keypair.fromSecretKey(Base58.decode('4TQEhMh
 
 const bicTokenPublicKey = new web3.PublicKey('9kJAfNMhZNtaTQTMGvrnRnCg1qxeCunFdvwY5webv8TN')
 const birTokenPublicKey = new web3.PublicKey('2EVyXs7AM8tgkjweRFkwCDe8DaVEYetDPG2EauAu2U6B')
-const bgtTokenPublicKey = new web3.PublicKey('3CvHRa7W8KcQG37xEqvUoUwNonxVBMkPRNttHn9MVczg')
+const bgtTokenPublicKey = new web3.PublicKey('GGi2oBV3vDVwGK97Y8Sp2iYM6qdxMqz1e8QXyFF6KNEU')
 const usdtTokenPublicKey = new web3.PublicKey('v2aShdenyX3bNDvUWzRYBXPC5yeuhtBjTTg3AiF5TAE')
 const DECIMALS = 6;
 
@@ -45,14 +45,8 @@ program.command('init-token')
     .action(async () => {
         console.log('Create tokens for master wallet: ', testMasterWallet.publicKey.toString())
         console.log('And mining 1000 token each for master wallet.')
-        console.log('BIC creating....')
         await createTokensAndMintIt();
-        console.log('BIR creating....')
-        await createTokensAndMintIt();
-        console.log('BGT creating....')
-        await createTokensAndMintIt();
-        console.log('USDT creating....')
-        await createTokensAndMintIt();
+        await createUsdtAndMintIt();
     });
 
 program.command('transfer-usdt')
@@ -88,59 +82,110 @@ program.parse();
 
 async function createTokensAndMintIt() {
     const amountMint = 10000*1e6;
+    const lamports = await connection.getMinimumBalanceForRentExemption(82)
 
-    const tokenMint = web3.Keypair.generate();
-
-    console.log('Create token: ', tokenMint.publicKey.toString());
-    const tokenMasterAssociatedAccount = await Token.getAssociatedTokenAddress(
+    const bicTokenMint = web3.Keypair.generate();
+    console.log('Create token BIC: ', bicTokenMint.publicKey.toString());
+    const bicMasterAssociatedAccount = await Token.getAssociatedTokenAddress(
         ASSOCIATED_TOKEN_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
-        tokenMint.publicKey,
+        bicTokenMint.publicKey,
         testMasterWallet.publicKey
     )
 
-    const instructions = [
+    const birTokenMint = web3.Keypair.generate();
+    console.log('Create token BIR: ', birTokenMint.publicKey.toString());
+    const birMasterAssociatedAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
+        birTokenMint.publicKey,
+        testMasterWallet.publicKey
+    )
+
+    const bgtTokenMint = web3.Keypair.generate();
+    console.log('Create token BGT: ', bgtTokenMint.publicKey.toString());
+
+    const instructions = createTokenAndMintInstructions(bicTokenMint.publicKey, lamports, true)
+        .concat(createAssociateTokenTokenAndMintToItInstructions(bicTokenMint.publicKey, bicMasterAssociatedAccount, amountMint))
+        .concat(createTokenAndMintInstructions(birTokenMint.publicKey, lamports))
+        .concat(createAssociateTokenTokenAndMintToItInstructions(birTokenMint.publicKey, birMasterAssociatedAccount, amountMint))
+        .concat(createTokenAndMintInstructions(bgtTokenMint.publicKey, lamports, true))
+
+    let tx = new web3.Transaction().add(...instructions)
+    tx.feePayer = testFeePayerWallet.payer.publicKey
+    tx.recentBlockhash = (await connection.getRecentBlockhash()).blockhash
+    tx.partialSign(bicTokenMint)
+    tx.partialSign(birTokenMint)
+    tx.partialSign(bgtTokenMint)
+    tx.partialSign(testFeePayerWallet.payer)
+    tx.partialSign(testMasterWallet.payer)
+    const rawTx = tx.serialize()
+    const receipt = await connection.sendRawTransaction(rawTx)
+    logOnExplorer(receipt);
+}
+
+async function createUsdtAndMintIt() {
+    const amountMint = 10000*1e6;
+    const lamports = await connection.getMinimumBalanceForRentExemption(82)
+    const usdtTokenMint = web3.Keypair.generate();
+    console.log('Create token USDT: ', usdtTokenMint.publicKey.toString());
+    const usdtMasterAssociatedAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
+        usdtTokenMint.publicKey,
+        testMasterWallet.publicKey
+    )
+    const instructions = createTokenAndMintInstructions(usdtTokenMint.publicKey, lamports)
+        .concat(createAssociateTokenTokenAndMintToItInstructions(usdtTokenMint.publicKey, usdtMasterAssociatedAccount, amountMint))
+    let tx = new web3.Transaction().add(...instructions)
+    tx.feePayer = testFeePayerWallet.payer.publicKey
+    tx.recentBlockhash = (await connection.getRecentBlockhash()).blockhash
+    tx.partialSign(usdtTokenMint)
+    tx.partialSign(testFeePayerWallet.payer)
+    tx.partialSign(testMasterWallet.payer)
+    const rawTx = tx.serialize()
+    const receipt = await connection.sendRawTransaction(rawTx)
+    logOnExplorer(receipt);
+}
+
+
+function createTokenAndMintInstructions(mintPublicKey, lamports, isAbleToFreeze = false) {
+    return [
         web3.SystemProgram.createAccount({
             fromPubkey: testFeePayerWallet.publicKey,
-            newAccountPubkey: tokenMint.publicKey,
+            newAccountPubkey: mintPublicKey,
             space: 82,
-            lamports: await connection.getMinimumBalanceForRentExemption(82),
+            lamports: lamports,
             programId: TOKEN_PROGRAM_ID,
         }),
         Token.createInitMintInstruction(
             TOKEN_PROGRAM_ID,
-            tokenMint.publicKey,
+            mintPublicKey,
             DECIMALS,
             testMasterWallet.publicKey,
-            null
-        ),
+            isAbleToFreeze && testMasterWallet.publicKey
+        )
+    ]
+}
+function createAssociateTokenTokenAndMintToItInstructions(mintPublicKey, tokenMasterAssociatedAccount, amountMint) {
+    return [
         Token.createAssociatedTokenAccountInstruction(
             ASSOCIATED_TOKEN_PROGRAM_ID,
             TOKEN_PROGRAM_ID,
-            tokenMint.publicKey,
+            mintPublicKey,
             tokenMasterAssociatedAccount,
             testMasterWallet.publicKey,
             testFeePayerWallet.publicKey
         ),
         Token.createMintToInstruction(
             TOKEN_PROGRAM_ID,
-            tokenMint.publicKey,
+            mintPublicKey,
             tokenMasterAssociatedAccount,
             testMasterWallet.publicKey,
             [],
             amountMint
-        ),
-
-    ];
-    let tx = new web3.Transaction().add(...instructions)
-    tx.feePayer = testFeePayerWallet.payer.publicKey
-    tx.recentBlockhash = (await connection.getRecentBlockhash()).blockhash
-    tx.partialSign(tokenMint)
-    tx.partialSign(testFeePayerWallet.payer)
-    tx.partialSign(testMasterWallet.payer)
-    const rawTx = tx.serialize()
-    const receipt = await connection.sendRawTransaction(rawTx)
-    logOnExplorer(receipt);
+        )
+    ]
 }
 
 function logOnExplorer(hash) {
@@ -288,25 +333,6 @@ async function createBuyRequest(amountUsdt) {
         ))
     }
 
-    // BGT user
-    try {
-        await connection.getTokenAccountBalance(userAssociatedAccount.bgt)
-    } catch (e) {
-        amountUsdt-=amountUsdtForRentAccount;
-        if(amountUsdt < 0) {
-            console.log('Not enough USDT for rent!')
-            return
-        }
-        instructionRentAccount.push(Token.createAssociatedTokenAccountInstruction(
-            ASSOCIATED_TOKEN_PROGRAM_ID,
-            TOKEN_PROGRAM_ID,
-            bgtTokenPublicKey,
-            userAssociatedAccount.bgt,
-            userPublicKey,
-            testFeePayerWallet.publicKey
-        ))
-    }
-
     // BIC Ref
     try {
         await connection.getTokenAccountBalance(refAssociatedAccount.bic)
@@ -335,21 +361,7 @@ async function createBuyRequest(amountUsdt) {
         ))
     }
 
-    // BGT Ref
-    try {
-        await connection.getTokenAccountBalance(refAssociatedAccount.bgt)
-    } catch (e) {
-        instructionRentAccount.push(Token.createAssociatedTokenAccountInstruction(
-            ASSOCIATED_TOKEN_PROGRAM_ID,
-            TOKEN_PROGRAM_ID,
-            bgtTokenPublicKey,
-            refAssociatedAccount.bgt,
-            refUserPublicKey,
-            testFeePayerWallet.publicKey
-        ))
-    }
-
-    const bicReceive = amountUsdt*currentBicPrice;
+    const bicReceive = amountUsdt/currentBicPrice;
     const birReceive = bicReceive*birReceiveRate;
     const bgtReceive = bicReceive*bgtReceiveRate;
     const bicRef = bicReceive*bicRefRate;
@@ -382,14 +394,6 @@ async function createBuyRequest(amountUsdt) {
         ),
         Token.createTransferInstruction(
             TOKEN_PROGRAM_ID,
-            masterAssociatedAccount.bgt,
-            userAssociatedAccount.bgt,
-            testMasterWallet.publicKey,
-            [],
-            bgtReceive
-        ),
-        Token.createTransferInstruction(
-            TOKEN_PROGRAM_ID,
             masterAssociatedAccount.bic,
             refAssociatedAccount.bic,
             testMasterWallet.publicKey,
@@ -404,16 +408,12 @@ async function createBuyRequest(amountUsdt) {
             [],
             birRef
         ),
-        Token.createTransferInstruction(
-            TOKEN_PROGRAM_ID,
-            masterAssociatedAccount.bgt,
-            refAssociatedAccount.bgt,
-            testMasterWallet.publicKey,
-            [],
-            bgtRef
-        ),
     ]
-    const instructions = instructionRentAccount.concat(buyAndRewardInstructions)
+
+    const mintBgtToReceive = await thawThenMintThenFreezeBgtAgain(userAssociatedAccount.bgt, bgtReceive, userPublicKey);
+    const mintBgtToRef = await thawThenMintThenFreezeBgtAgain(refAssociatedAccount.bgt, bgtRef, refUserPublicKey);
+
+    const instructions = instructionRentAccount.concat(buyAndRewardInstructions).concat(mintBgtToReceive).concat(mintBgtToRef)
 
     let tx = new web3.Transaction().add(...instructions)
     tx.feePayer = testFeePayerWallet.payer.publicKey
@@ -454,6 +454,88 @@ async function logBalance(wallet) {
     } catch (e) {
         console.log('BGT account not created.');
     }
+    let usdtBalance = 0
+    try {
+        usdtBalance = (await connection.getTokenAccountBalance(associatedAccount.usdt)).value.uiAmount
+        console.log('USDT: ', bgtBalance);
+    } catch (e) {
+        console.log('USDT account not created.');
+    }
     console.log('-------------------------------------------------------------')
 }
+
+
+async function thawThenMintThenFreezeBgtAgain(dest, mintAmount, userPublicKey) {
+    let isCreatedAccount = true;
+    try {
+        await connection.getTokenAccountBalance(dest)
+    } catch (e) {
+        isCreatedAccount = false
+    }
+    return [
+        isCreatedAccount ? Token.createThawAccountInstruction(
+            TOKEN_PROGRAM_ID,
+            dest,
+            bgtTokenPublicKey,
+            testMasterWallet.publicKey,
+            []
+        ) : Token.createAssociatedTokenAccountInstruction(
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+            TOKEN_PROGRAM_ID,
+            bgtTokenPublicKey,
+            dest,
+            userPublicKey,
+            testFeePayerWallet.publicKey
+        ),
+        Token.createMintToInstruction(
+            TOKEN_PROGRAM_ID,
+            bgtTokenPublicKey,
+            dest,
+            testMasterWallet.publicKey,
+            [],
+            mintAmount
+        ),
+        Token.createFreezeAccountInstruction(
+            TOKEN_PROGRAM_ID,
+            dest,
+            bgtTokenPublicKey,
+            testMasterWallet.publicKey,
+            []
+        )
+    ]
+}
+
+// Stuff to check if account free con transfer or mint?
+// async function freezeAccount() {
+//     const bicToken = new Token(connection, bicTokenPublicKey, TOKEN_PROGRAM_ID, testFeePayerWallet.payer)
+//
+//
+//     const bicAssociatedAccount1 = await Token.getAssociatedTokenAddress(
+//         ASSOCIATED_TOKEN_PROGRAM_ID,
+//         TOKEN_PROGRAM_ID,
+//         bicTokenPublicKey,
+//         user1Wallet.publicKey
+//     )
+//
+//     const masterBicAssociatedAccount = await Token.getAssociatedTokenAddress(
+//         ASSOCIATED_TOKEN_PROGRAM_ID,
+//         TOKEN_PROGRAM_ID,
+//         bicTokenPublicKey,
+//         testMasterWallet.publicKey
+//     )
+//
+//     const bicAssociatedAccount2 = await Token.getAssociatedTokenAddress(
+//         ASSOCIATED_TOKEN_PROGRAM_ID,
+//         TOKEN_PROGRAM_ID,
+//         bicTokenPublicKey,
+//         user2Wallet.publicKey
+//     )
+//     // await bicToken.freezeAccount(bicAssociatedAccount1, testMasterWallet.publicKey, [testMasterWallet.payer])
+//
+//     // const transfer = await bicToken.transfer(bicAssociatedAccount1, bicAssociatedAccount2, user1Wallet.publicKey, [user1Wallet.payer], 0.01)
+//     // console.log('transfer: ', transfer)
+//
+//     await bicToken.mintTo(bicAssociatedAccount1, testMasterWallet.publicKey, [testMasterWallet.payer]);
+// }
+
 
